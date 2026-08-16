@@ -1,168 +1,116 @@
 const express = require('express');
 let books = require("./booksdb.js");
+let isValid = require("./auth_users.js").isValid;
 let users = require("./auth_users.js").users;
 const public_users = express.Router();
 
-// Check if a user with the given username already exists
-const doesExist = (username) => {
-  let userswithsamename = users.filter((user) => {
-    return user.username === username;
-  });
-  return userswithsamename.length > 0;
-}
-
-// Register a new user
+// Task 6: Register a new user
 public_users.post("/register", (req, res) => {
-  const username = req.body.username;
-  const password = req.body.password;
+  const { username, password } = req.body;
 
-  if (username && password) {
-    if (!doesExist(username)) {
-      users.push({"username": username, "password": password});
-      return res.status(200).json({message: "User successfully registered. Now you can login"});
-    } else {
-      return res.status(404).json({message: "User already exists!"});
-    }
+  if (!username || !password) {
+    return res.status(400).json({ message: "Username and password are required." });
   }
-  return res.status(404).json({message: "Unable to register user."});
+
+  if (isValid(username)) {
+    return res.status(409).json({ message: "Username already exists!" });
+  }
+
+  users.push({ "username": username, "password": password });
+  return res.status(201).json({ message: "User successfully registered. You can now log in." });
 });
 
-// Task 1: Get the book list available in the shop
+// Task 1 & 10: Get the list of books available in the shop (Using Promises)
 public_users.get('/', function (req, res) {
-  return res.status(200).send(JSON.stringify(books, null, 4));
-});
-
-// Task 10: Get the book list available using Promise/Async-Await (Node/Axios style simulation)
-public_users.get('/async', async function (req, res) {
-  try {
-    const getBooks = new Promise((resolve, reject) => {
+  const getBooks = new Promise((resolve, reject) => {
+    if (books) {
       resolve(books);
-    });
-    const bookList = await getBooks;
-    return res.status(200).json(bookList);
-  } catch (error) {
-    return res.status(500).json({ message: "Error fetching books" });
-  }
+    } else {
+      reject("No books found");
+    }
+  });
+
+  getBooks
+    .then((booksList) => res.status(200).send(JSON.stringify(booksList, null, 4)))
+    .catch((error) => res.status(500).json({ message: error }));
 });
 
-// Task 2: Get book details based on ISBN
-public_users.get('/isbn/:isbn', function (req, res) {
+// Task 2 & 11: Get book details based on ISBN (Using Promises/Async-Await)
+public_users.get('/isbn/:isbn', async function (req, res) {
   const isbn = req.params.isbn;
-  if (books[isbn]) {
-    return res.status(200).json(books[isbn]);
-  }
-  return res.status(404).json({message: "Book not found"});
-});
 
-// Task 11: Get book details based on ISBN using Async-Await
-public_users.get('/isbn/async/:isbn', async function (req, res) {
-  const isbn = req.params.isbn;
   try {
-    const getBookByIsbn = new Promise((resolve, reject) => {
+    const bookDetails = await new Promise((resolve, reject) => {
       if (books[isbn]) {
         resolve(books[isbn]);
       } else {
-        reject({ status: 404, message: "Book not found" });
+        reject(`Book with ISBN ${isbn} not found.`);
       }
     });
-    const book = await getBookByIsbn;
-    return res.status(200).json(book);
+
+    return res.status(200).json(bookDetails);
   } catch (error) {
-    return res.status(error.status || 500).json({ message: error.message });
+    return res.status(404).json({ message: error });
   }
 });
-
-// Task 3: Get book details based on author
-public_users.get('/author/:author', function (req, res) {
-  const authorName = req.params.author;
-  let filteredBooks = [];
-  const keys = Object.keys(books);
   
-  keys.forEach((key) => {
-    if (books[key].author.toLowerCase() === authorName.toLowerCase()) {
-      filteredBooks.push(books[key]);
-    }
-  });
+// Task 3 & 12: Get book details based on author (Using Promises)
+public_users.get('/author/:author', function (req, res) {
+  const authorName = req.params.author.toLowerCase();
 
-  if (filteredBooks.length > 0) {
-    return res.status(200).json(filteredBooks);
-  }
-  return res.status(404).json({message: "Book not found for this author"});
+  new Promise((resolve, reject) => {
+    let filteredBooks = [];
+    Object.keys(books).forEach((isbn) => {
+      if (books[isbn].author.toLowerCase() === authorName) {
+        filteredBooks.push({ isbn: isbn, ...books[isbn] });
+      }
+    });
+
+    if (filteredBooks.length > 0) {
+      resolve(filteredBooks);
+    } else {
+      reject(`No books found by author: ${req.params.author}`);
+    }
+  })
+    .then((matchingBooks) => res.status(200).json(matchingBooks))
+    .catch((error) => res.status(404).json({ message: error }));
 });
 
-// Task 12: Get book details based on author using Async-Await
-public_users.get('/author/async/:author', async function (req, res) {
-  const authorName = req.params.author;
+// Task 4 & 13: Get all books details based on title (Using Async-Await)
+public_users.get('/title/:title', async function (req, res) {
+  const titleName = req.params.title.toLowerCase();
+
   try {
-    const getByAuthor = new Promise((resolve, reject) => {
+    const matchingBooks = await new Promise((resolve, reject) => {
       let filteredBooks = [];
-      Object.keys(books).forEach((key) => {
-        if (books[key].author.toLowerCase() === authorName.toLowerCase()) {
-          filteredBooks.push(books[key]);
+      Object.keys(books).forEach((isbn) => {
+        if (books[isbn].title.toLowerCase() === titleName) {
+          filteredBooks.push({ isbn: isbn, ...books[isbn] });
         }
       });
+
       if (filteredBooks.length > 0) {
         resolve(filteredBooks);
       } else {
-        reject({ status: 404, message: "Books not found for this author" });
+        reject(`No books found with title: ${req.params.title}`);
       }
     });
-    const result = await getByAuthor;
-    return res.status(200).json(result);
+
+    return res.status(200).json(matchingBooks);
   } catch (error) {
-    return res.status(error.status || 500).json({ message: error.message });
+    return res.status(404).json({ message: error });
   }
 });
 
-// Task 4: Get all books based on title
-public_users.get('/title/:title', function (req, res) {
-  const titleName = req.params.title;
-  let filteredBooks = [];
-  const keys = Object.keys(books);
-
-  keys.forEach((key) => {
-    if (books[key].title.toLowerCase() === titleName.toLowerCase()) {
-      filteredBooks.push(books[key]);
-    }
-  });
-
-  if (filteredBooks.length > 0) {
-    return res.status(200).json(filteredBooks);
-  }
-  return res.status(404).json({message: "Book not found with this title"});
-});
-
-// Task 13: Get all books based on title using Async-Await
-public_users.get('/title/async/:title', async function (req, res) {
-  const titleName = req.params.title;
-  try {
-    const getByTitle = new Promise((resolve, reject) => {
-      let filteredBooks = [];
-      Object.keys(books).forEach((key) => {
-        if (books[key].title.toLowerCase() === titleName.toLowerCase()) {
-          filteredBooks.push(books[key]);
-        }
-      });
-      if (filteredBooks.length > 0) {
-        resolve(filteredBooks);
-      } else {
-        reject({ status: 404, message: "Books not found with this title" });
-      }
-    });
-    const result = await getByTitle;
-    return res.status(200).json(result);
-  } catch (error) {
-    return res.status(error.status || 500).json({ message: error.message });
-  }
-});
-
-// Task 5: Get book review
+// Task 5: Get book reviews based on ISBN
 public_users.get('/review/:isbn', function (req, res) {
   const isbn = req.params.isbn;
+
   if (books[isbn]) {
     return res.status(200).json(books[isbn].reviews);
+  } else {
+    return res.status(404).json({ message: `Book with ISBN ${isbn} not found.` });
   }
-  return res.status(404).json({message: "Book not found"});
 });
 
 module.exports.general = public_users;
